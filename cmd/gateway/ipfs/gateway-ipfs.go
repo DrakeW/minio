@@ -1,7 +1,10 @@
 package ipfs
 
 import (
+	"context"
 	"io"
+	"net/http"
+	"strings"
 
 	"github.com/ipfs/ipfs-cluster/api/rest/client"
 	"github.com/minio/cli"
@@ -55,47 +58,139 @@ EXAMPLES:
 }
 
 func ipfsGatewayMain(ctx *cli.Context) {
-
 }
 
 // Ipfs implements Gateway
 type Ipfs struct {
-	apiAddr ma.Multiaddr
+	apiAddr string
 }
 
+// Name implements Name method of Gateway interface
 func (g *Ipfs) Name() string {
 	return ipfsBackend
 }
 
+// NewGatewayLayer implements NewGatewayLayer method of Gateway interface
+// TODO: fill this method in
 func (g *Ipfs) NewGatewayLayer(creds auth.Credentials) (minio.ObjectLayer, error) {
-	return nil, nil
+	username := creds.AccessKey
+	password := creds.SecretKey
+	endpoint := g.apiAddr
+	// TODO: path should be taken as input
+	object, err := NewIpfsObjectLayer(username, password, endpoint, "~/.test-ipfs-ds")
+	if err != nil {
+		return nil, err
+	}
+	return object, nil
 }
 
+// Production implements Production method of Gateway interface
 func (g *Ipfs) Production() bool {
 	return false
 }
 
-// IpfsObject implements ObjectLayer
-type IpfsObject struct {
+// IpfsObjectLayer implements ObjectLayer
+type IpfsObjectLayer struct {
 	ledger *ledgerStore // ledger store handles the the mapping between buckets/objects to CIDs
 	client *ipfsClient  // client handles the interaction with IPFS
 }
 
-// TODO: figure out its signature
-func NewIpfsObject() *IpfsObject {}
+// NewIpfsObjectLayer initializes an IpfsObjectLayer
+func NewIpfsObjectLayer(
+	username, password, endpoint,
+	dPath string,
+) (*IpfsObjectLayer, error) {
+	ipfsClient, err := newIpfsClient(username, password, endpoint)
+	if err != nil {
+		return nil, err
+	}
+	ledger, err := newLedgerStore(dPath)
+	if err != nil {
+		return nil, err
+	}
+	return &IpfsObjectLayer{
+		ledger: ledger,
+		client: ipfsClient,
+	}, nil
+}
+
+// START - implements the ObjectLayer interface
+
+func (obj *IpfsObjectLayer) GetBucketInfo(ctx context.Context, bucket string) (bucketInfo minio.BucketInfo, err error) {
+}
+
+func (obj *IpfsObjectLayer) ListBuckets(ctx context.Context) (buckets []minio.BucketInfo, err error) {}
+
+func (obj *IpfsObjectLayer) DeleteBucket(ctx context.Context, bucket string, forceDelete bool) error {}
+
+func (obj *IpfsObjectLayer) ListObjects(ctx context.Context, bucket, prefix, marker, delimiter string, maxKeys int) (result minio.ListObjectsInfo, err error) {
+}
+func (obj *IpfsObjectLayer) ListObjectsV2(ctx context.Context, bucket, prefix, continuationToken, delimiter string, maxKeys int, fetchOwner bool, startAfter string) (result minio.ListObjectsV2Info, err error) {
+}
+func (obj *IpfsObjectLayer) GetObjectNInfo(ctx context.Context, bucket, object string, rs *minio.HTTPRangeSpec, h http.Header, lockType minio.LockType, opts minio.ObjectOptions) (reader *minio.GetObjectReader, err error) {
+}
+func (obj *IpfsObjectLayer) GetObject(ctx context.Context, bucket, object string, startOffset int64, length int64, writer io.Writer, etag string, opts minio.ObjectOptions) (err error) {
+}
+func (obj *IpfsObjectLayer) GetObjectInfo(ctx context.Context, bucket, object string, opts minio.ObjectOptions) (objInfo minio.ObjectInfo, err error) {
+}
+func (obj *IpfsObjectLayer) PutObject(ctx context.Context, bucket, object string, data *minio.PutObjReader, opts minio.ObjectOptions) (objInfo minio.ObjectInfo, err error) {
+}
+func (obj *IpfsObjectLayer) CopyObject(ctx context.Context, srcBucket, srcObject, destBucket, destObject string, srcInfo minio.ObjectInfo, srcOpts, dstOpts minio.ObjectOptions) (objInfo minio.ObjectInfo, err error) {
+}
+func (obj *IpfsObjectLayer) DeleteObject(ctx context.Context, bucket, object string, opts minio.ObjectOptions) (minio.ObjectInfo, error) {
+}
+func (obj *IpfsObjectLayer) DeleteObjects(ctx context.Context, bucket string, objects []minio.ObjectToDelete, opts minio.ObjectOptions) ([]minio.DeletedObject, []error) {
+}
+
+// END - implements the ObjectLayer interface
 
 // ipfsClient handles the read/write operation on IPFS
 type ipfsClient struct {
 	c client.Client
 }
 
-func newIpfsClient(cfg *client.Config) *ipfsClient {
-	client := client.NewDefaultClient(cfg)
-	return &ipfsClient{
-		c: client,
+func newIpfsClient(username, password, endpoint string) (*ipfsClient, error) {
+	// build client config
+	cfg := &client.Config{}
+	if isEndpointP2p(endpoint) {
+		apiAddr, err := ma.NewMultiaddr(endpoint)
+		if err != nil {
+			return nil, err
+		}
+		cfg.APIAddr = apiAddr
+	} else {
+		hostAndPort := strings.Split(endpoint, ":")
+		cfg.Host = hostAndPort[0]
+		cfg.Port = hostAndPort[1]
 	}
+	cfg.Username = username
+	cfg.Password = password
+	cfg.LogLevel = "DEBUG" // TODO: temporary value here, make it a command line argument in the future
+
+	client, err := client.NewDefaultClient(cfg)
+	if err != nil {
+		return &ipfsClient{
+			c: client,
+		}, nil
+	}
+	return nil, err
 }
 
-func (i *ipfsClient) addFile(f io.Reader) (ipfsCID, error) {}
+func isEndpointP2p(endpoint string) bool {
+	if strings.HasPrefix("/ipfs", endpoint) ||
+		strings.HasPrefix("/p2p", endpoint) ||
+		strings.HasPrefix("/dnsaddr", endpoint) {
+		return true
+	}
+	return false
+}
 
-func (i *ipfsClient) getFile(cid ipfsCID) ([]bytes, error) {}
+// TODO: fill this in
+func (i *ipfsClient) addFile(f io.Reader) (ipfsCID, error) {
+	return "", nil
+}
+
+// TODO: fill this in
+func (i *ipfsClient) getFile(cid ipfsCID) ([]byte, error) {
+	return []byte{}, nil
+}
